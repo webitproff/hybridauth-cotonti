@@ -1,1 +1,638 @@
-# hybridauth-cotonti
+# Плагин HybridAuth для Cotonti CMF: социальная аутентификация без сторонних сервисов
+
+**HybridAuth** — это плагин для Cotonti Siena/Verona, который позволяет пользователям регистрироваться и входить на сайт, используя аккаунты популярных социальных сетей и мессенджеров (Google, Facebook, Telegram, Twitter и любых других провайдеров, поддерживающих OAuth 2.0 / OpenID Connect). Вся авторизация происходит напрямую между сайтом и выбранным сервисом, без участия посредников — ваши данные остаются под вашим контролем.
+
+Плагин базируется на **[релизе v3.13.0](https://github.com/hybridauth/hybridauth/releases/tag/v3.13.0)** проверенной библиотеке [Hybridauth 3.x](https://hybridauth.github.io/) и адаптирован для Cotonti, повторяя логику оригинального плагина, но с исправлением ошибок и добавлением современных провайдеров (Telegram через OIDC). Исходный код доступен в репозитории: [https://github.com/webitproff/hybridauth-cotonti](https://github.com/webitproff/hybridauth-cotonti).
+
+---
+
+## Оглавление
+
+1. [Возможности плагина](#возможности-плагина)
+2. [Как это работает](#как-это-работает)
+3. [Установка](#установка)
+4. [Настройка провайдеров](#настройка-провайдеров)
+   - [Google](#google)
+   - [Telegram](#telegram)
+   - [Другие провайдеры](#другие-провайдеры)
+5. [Конфигурация плагина](#конфигурация-плагина)
+6. [Интеграция с темой оформления](#интеграция-с-темой-оформления)
+7. [Авторегистрация и привязка аккаунтов](#авторегистрация-и-привязка-аккаунтов)
+8. [Логирование и отладка](#логирование-и-отладка)
+9. [Структура файлов и хуки](#структура-файлов-и-хуки)
+10. [Заключение и ссылки](#заключение-и-ссылки)
+
+---
+
+## Возможности плагина
+
+- **Вход / Регистрация через соцсети** — одним кликом пользователь попадает на сайт, система автоматически создаёт учётную запись, заполняя профиль данными из социального аккаунта (имя, email, аватар, дата рождения и т.д.).
+- **Привязка нескольких провайдеров** — в личном кабинете можно подключить несколько соцсетей к одной учётной записи, чтобы входить любым из привязанных способов.
+- **Гибкая конфигурация** — каждый провайдер включается/отключается отдельно, задаются ключи и область видимости (scope) индивидуально.
+- **Авторегистрация** (опционально) — при первом входе автоматически создаётся новый пользователь; можно также заблокировать ручную регистрацию и оставить только социальный вход.
+- **Совместимость с темами** — через шаблонные теги выводятся кнопки входа и панель управления привязанными аккаунтами; легко стилизуется под Bootstrap 5.
+- **Генерация читаемого логина** — на основе имени из соцсети создаётся чистый URL‑безопасный никнейм (пробелы и спецсимволы удаляются).
+- **Поддержка аватаров** — аватар из соцсети сохраняется как внешний URL (не загружается на сервер), что экономит дисковое пространство.
+- **Инструмент синхронизации** — в админке можно проверить и автоматически добавить недостающие поля в таблицу пользователей для выбранных провайдеров.
+- **Логирование** — запись основных событий в файл помогает при отладке.
+
+---
+
+## Как это работает
+
+Плагин подключает библиотеку **Hybridauth 3.x**, которая реализует стандартные протоколы OAuth 2.0 / OpenID Connect для более чем 40 провайдеров. При клике на кнопку «Войти через …» пользователь перенаправляется на сайт провайдера, где подтверждает доступ. После успешной аутентификации провайдер возвращает на сайт специальный код, по которому библиотека получает токен доступа и загружает профиль пользователя.
+
+Далее плагин ищет в базе данных запись с таким же идентификатором провайдера. Если находит — выполняет вход. Если нет и включена авторегистрация — создаёт нового пользователя, заполняя стандартные поля (`user_name`, `user_email`, `user_avatar` и др.). После этого пользователь автоматически авторизуется в Cotonti.
+
+---
+
+
+
+## Установка
+
+1. Скачайте ZIP-архив плагина из репозитория [hybridauth-cotonti](https://github.com/webitproff/hybridauth-cotonti) или клонируйте его.
+2. **Скопируйте папку `hybridauth`** из архива в директорию `plugins/` вашего сайта.  
+   Внутри папки `lib/Hybridauth/` уже находится готовая библиотека Hybridauth 3.x — **ничего дополнительно качать не нужно**.
+3. Зайдите в панель администратора Cotonti («Конфигурация → Плагины») и нажмите **«Установить»** напротив HybridAuth.
+4. После установки откройте настройки плагина и сохраните их (даже без изменений) — это создаст в таблице `users` необходимые колонки для хранения ID и URL‑профилей соцсетей (например, `user_google_id`, `user_telegram_url`).
+5. Настройте провайдеров (см. раздел «Настройка провайдеров»).
+---
+
+## Настройка провайдеров
+
+Все провайдеры настраиваются в файле `plugins/hybridauth/conf/hybridauth.config.php`. Для каждого указывается `enabled` (вкл/выкл), `keys` (id и secret) и опционально `scope`.
+
+### Google
+
+1. Перейдите в [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Создайте проект (или выберите существующий).
+3. В разделе **APIs & Services → Credentials** нажмите **+ Create Credentials → OAuth client ID**.
+4. Выберите тип приложения **Web application**.
+5. В поле **Authorized redirect URIs** укажите:
+   ```
+   https://ваш-сайт.com/hybridauth
+   ```
+   (адрес должен точно совпадать с параметром `callback` в конфиге плагина, без языкового префикса).
+6. После создания скопируйте **Client ID** и **Client Secret**.
+
+Пример конфигурации:
+```php
+'Google' => [
+    'enabled' => true,
+    'keys' => [
+        'id'     => 'ВАШ_CLIENT_ID.apps.googleusercontent.com',
+        'secret' => 'ВАШ_CLIENT_SECRET'
+    ],
+    'scope' => 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+],
+```
+
+### Telegram
+
+Современный провайдер Telegram использует протокол OpenID Connect (OIDC). Для его настройки:
+
+1. Создайте бота через [@BotFather](https://t.me/BotFather) (команда `/newbot`).
+2. В чате с BotFather нажмите кнопку **«Open»** (запуск мини‑приложения), перейдите в **Bot Settings → Web Login**.
+3. Нажмите **Configure** и укажите тот же самый callback URL:
+   ```
+   https://ваш-сайт.com/hybridauth
+   ```
+4. Получите **Client ID** (числовой) и **Client Secret** (длинная строка).
+
+Конфигурация:
+```php
+'Telegram' => [
+    'enabled' => true,
+    'keys' => [
+        'id'     => '123456789',                         // числовой Client ID
+        'secret' => 'AbCdEfGhIjKlMnOpQrStUvWxYz123456789' // Client Secret
+    ],
+    'scope' => 'openid profile',   // можно добавить 'phone' для получения номера телефона
+],
+```
+
+### Другие провайдеры
+
+Библиотека Hybridauth поддерживает множество провайдеров: Facebook, Twitter (X), GitHub, VK, Одноклассники, Яндекс и др. Для их добавления достаточно:
+- создать приложение в соответствующей платформе,
+- получить id/secret,
+- прописать секцию в `providers`, указав необходимый `scope`.
+
+Для многих провайдеров уже есть готовые адаптеры в папке `lib/Hybridauth/Provider/`. Если нужный провайдер отсутствует, можно добавить его по документации Hybridauth.
+
+---
+
+## Конфигурация плагина
+
+Файл `plugins/hybridauth/conf/hybridauth.config.php` содержит общие настройки:
+
+```php
+return [
+    'callback'   => $cfg['mainurl'] . '/hybridauth',   // единый callback для всех провайдеров
+    'providers'  => [ /* … */ ],
+    'debug_mode' => true,                               // включить подробное логирование
+    'debug_file' => $cfg['plugins_dir'] . '/hybridauth/log/hybridauth_debug.log',
+];
+```
+
+Параметр `callback` должен указывать на файл `hybridauth.php` в корне плагина. Он же используется всеми провайдерами. Важно, чтобы этот URL был **абсолютным** и совпадал с тем, что прописано в настройках приложений у провайдеров.
+
+В административной панели доступны опции:
+- **Авто-регистрация** — если включена, при первом входе через соцсеть автоматически создаётся новый пользователь.
+- **Блокировать ручную регистрацию** — скрывает стандартную форму регистрации, оставляя только социальный вход (полезно для закрытых сообществ).
+
+---
+
+## Интеграция с темой оформления
+
+Плагин предоставляет два основных виджета, которые можно разместить в любых TPL-шаблонах темы.
+
+**Кнопки входа через соцсети**:
+```smarty
+<!-- IF {PHP|cot_plugin_active('hybridauth')} -->
+    {PHP|hybridauth_login}
+    <hr class="my-2">
+<!-- ENDIF -->
+```
+Этот код обычно вставляется в форму входа (файл `login.tpl`) или в модальное окно авторизации. Кнопки стилизуются в файле `hybridauth.login.tpl` и по умолчанию выводят иконку Font Awesome и название провайдера.
+
+### Пример моего шаблона авторизации на сайте 
+
+```
+<!--
+	/********************************************************************************
+	* File: login.tpl
+	* Extension: Core System Cotonti
+	* Description: HTML template for login.tpl.
+	* Compatibility: CMF/CMS Cotonti Siena v0.9.26[](https://github.com/Cotonti/Cotonti)
+	* Dependencies: 
+	* 		 Bootstrap 5.3.+[](https://getbootstrap.com/); 
+	* 		 Font Awesome Free 7.1[](https://fontawesome.com/)
+	* Theme: Index36  
+	* Version: 1.0.2 
+	* Created: 01 Feb 2026 
+	* Updated: 25 July 2026 
+	* Copyright (c) 2026 webitproff | https://github.com/webitproff
+	* Source: https://github.com/webitproff/index36-cotonti-theme
+	* Demo : https://freelance-script.abuyfile.com/ 
+	* Help and support: https://abuyfile.com/ru/forums/cotonti/original/skins/index36
+	* License: BSD (Free distribution with saving Copyright (c) 2026 webitproff)  
+	********************************************************************************/
+-->
+
+<!-- BEGIN: MAIN -->
+{FILE "{PHP.cfg.themes_dir}/{PHP.cfg.defaulttheme}/warnings.tpl"} <!-- обязательно для 'hybridauth' -->
+<!-- BEGIN: USERS_AUTH_MAINTENANCE -->
+<div class="alert alert-danger mb-0">
+    <h4>{PHP.L.users_maintenance1}</h4>
+    <p>{PHP.L.users_maintenance2}</p>
+</div>
+<!-- END: USERS_AUTH_MAINTENANCE -->
+
+<div class="d-flex">
+	<div class="d-none d-lg-flex flex-grow-1 align-items-center justify-content-center">
+		<div class="p-4" style="max-width:520px">
+			<img src="{PHP.cfg.themes_dir}/{PHP.cfg.defaulttheme}/img/auth.svg" class="img-fluid" alt="{USERS_AUTH_TITLE}">
+		</div>
+	</div>
+	<div class="d-flex flex-column align-items-center justify-content-center vh-100 col-12 col-lg-6 col-xl-4" style="background-color: var(--bs-sidebar-bg);" data-bs-theme="inherit">
+		<div class="w-100 p-4">
+			<div class="text-center mb-4">
+				<img src="{PHP.R.app-logo}" width="75" alt="logo">
+			</div>
+			<!-- IF {PHP.usr.id} -->
+			<div class="alert alert-warning">
+				<p>{PHP.L.users_loggedinas} <strong>{PHP.usr.name}</strong>.<br/>{PHP.L.users_logoutfirst}</p>
+				<p><a class="button" href="{PHP.sys.xk|cot_url('login','out=1&x=$this', '', 0, 1)}">{PHP.L.Logout}</a></p>
+			</div>
+			<!-- ENDIF -->
+			
+			<!-- IF {PHP.usr.id} < 1 OR {PHP.usr.id} == 0 -->
+			
+			<!-- IF {PHP|cot_plugin_active('hybridauth')} -->
+			{PHP|hybridauth_login}
+			<div class="my-2"><div>
+			<!-- ENDIF -->
+			
+			<div class="d-flex align-items-center my-4">
+				<hr class="flex-grow-1">
+				<span class="px-2 small text-uppercase">{USERS_AUTH_TITLE}</span>
+				<hr class="flex-grow-1">
+			</div>
+			<form id="login" name="login" action="{USERS_AUTH_SEND}" method="post">
+				<div class="mb-3 position-relative">
+					<i class="fa-solid fa-circle-user position-absolute top-50 start-0 translate-middle-y ms-3 text-purple"></i>
+					{USERS_AUTH_USER}
+				</div>
+				<div class="mb-3 position-relative">
+					<i class="fa-solid fa-lock position-absolute top-50 start-0 translate-middle-y ms-3"></i>
+					{USERS_AUTH_PASSWORD}
+				</div>
+				<div class="form-check mb-4 d-flex align-items-center">
+					{USERS_AUTH_REMEMBER}
+				</div>
+				<button class="btn btn-primary w-100 mb-3" type="submit" name="rlogin" value="0">{PHP.L.Login}</button>
+			</form>
+			<hr>
+			<ul class="nav flex-column">
+				<li class="nav-item mb-3">
+					<a class="small text-reset" href="{PHP|cot_url('users','m=passrecover')}">
+						<i class="fa-solid fa-key me-2"></i>{PHP.L.users_lostpass}
+					</a>
+				</li>
+				<li class="nav-item">
+					<a class="small" href="{PHP|cot_url('users','m=register')}">
+						<i class="fa-solid fa-user-plus me-2"></i>{PHP.L.Register}
+					</a>
+				</li>
+			</ul>
+			
+			<!-- ENDIF -->
+			
+		</div>
+	</div>
+</div>
+<!-- END: MAIN -->
+```
+
+### Пример модального окна авторизации на сайте 
+
+кнопка
+```
+<a class="nav-link" href="{PHP|cot_url('login')}" data-bs-toggle="modal" data-bs-target="#authModal">
+  <i class="fa-solid fa-right-to-bracket me-1"></i>{PHP.L.Login}
+</a>
+```
+и тело
+```
+<div class="modal fade" id="authModal" tabindex="-1" aria-labelledby="authModalLabel" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header" style="background-color: var(--bs-header-bg);">
+				<h5 class="modal-title" id="authModalLabel">{PHP.L.Login}</h5>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<div class="modal-body">
+				<!-- IF {PHP|cot_plugin_active('hybridauth')} -->
+				{PHP|hybridauth_login}
+				<hr class="my-2">
+				<!-- ENDIF -->
+				<form action="{PHP|cot_url('login','a=check')}" method="post">
+					<div class="mb-3">
+						<label for="inputEmail" class="form-label">{PHP.L.users_nameormail}</label>
+						<input type="text" class="form-control" name="rusername" id="inputEmail" />
+					</div>
+					<div class="mb-3">
+						<label for="inputPassword" class="form-label">{PHP.L.Password}</label>
+						<input type="password" class="form-control" name="rpassword" id="inputPassword" />
+						<a href="{PHP|cot_url('users', 'm=passrecover')}" class="small text-decoration-none">{PHP.L.users_lostpass}</a>
+					</div>
+					<div class="mb-3 form-check">
+						<input type="checkbox" class="form-check-input" id="rememberMe" name="rremember">
+						<label class="form-check-label" for="rememberMe">{PHP.L.users_rememberme}</label>
+					</div>
+					<button type="submit" class="btn btn-primary">{PHP.L.Login}</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+```
+
+
+**Панель управления привязками в профиле пользователя**:
+
+```
+{PHP|hybridauth_accounts}
+```
+Разместите в шаблоне профиля (`users.profile.tpl`), например после блока с паролем. Пользователь увидит список включённых провайдеров, сможет привязать новый аккаунт или отвязать существующий. Шаблон этого блока — `hybridauth.accounts.tpl`.
+
+---
+
+## Авторегистрация и привязка аккаунтов
+
+Когда посетитель впервые входит через соцсеть и включена авторегистрация, плагин вызывает функцию `hybridauth_complete_profile()`, которая заполняет профиль нового пользователя:
+
+- `user_name` — очищенный от спецсимволов `displayName` (или часть email, если имя не передано).
+- `user_email` — email из соцсети, либо сгенерированный на основе ID провайдера (для Telegram).
+- `user_avatar` — полный URL аватара (не скачивается на сервер, чтобы не плодить файлы).
+- `user_firstname`, `user_lastname` — если существуют соответствующие дополнительные поля.
+- `user_country`, `user_lang`, `user_gender` — при наличии в профиле.
+- `user_photo` — URL фотографии (опционально).
+
+Привязка дополнительных провайдеров к уже существующей учётной записи выполняется через ссылки «Связать» / «Отвязать» в профиле. Один и тот же аккаунт соцсети может быть привязан только к одному пользователю сайта.
+
+---
+
+## Логирование и отладка
+
+Плагин умеет писать два лога:
+
+- **`hybridauth.log`** — создаётся автоматически в папке `plugins/hybridauth/log/`. Сюда попадают основные события: успешные входы, ошибки аутентификации, создание пользователей. За это отвечает функция `hybridauth_log()`.
+- **`hybridauth_debug.log`** — включается параметром `'debug_mode' => true` в конфигурации. Библиотека Hybridauth записывает сюда детальную техническую информацию (заголовки запросов, параметры, ошибки HTTP).
+
+Для быстрой диагностики ошибок при настройке нового провайдера рекомендуется включить режим отладки и заглянуть в `hybridauth_debug.log`.
+
+---
+
+## Схема структуры плагина hybridauth для Cotonti
+
+```
+/plugins/hybridauth/                       # Корень плагина
+│
+├── conf/                                  # Конфигурация
+│   └── hybridauth.config.php              # Настройки провайдеров, callback URL, отладка
+│
+├── inc/                                   # Основные функции
+│   └── hybridauth.functions.php           # Автозагрузчик Hybridauth 3.x, общие функции:
+│                                          # - hybridauth_complete_profile()
+│                                          # - hybridauth_login()
+│                                          # - hybridauth_accounts()
+│
+├── lang/                                  # Языковые файлы
+│   └── hybridauth.ru.lang.php             # Русские переводы для интерфейса и ошибок
+│
+├── lib/                                   # Библиотека Hybridauth 3.x (без Composer)
+│   └── Hybridauth/                        # Содержимое папки src/ из официального дистрибутива
+│       ├── Adapter/
+│       ├── Data/
+│       ├── Exception/
+│       ├── HttpClient/
+│       ├── Logger/
+│       ├── Provider/
+│       ├── Storage/
+│       ├── Thirdparty/
+│       ├── User/
+│       ├── Hybridauth.php                 # Главный класс библиотеки
+│       └── autoload.php                   # Штатный автозагрузчик (рекомендуется вместо самописного)
+│
+├── setup/                                 # Установка/удаление
+│   ├── hybridauth.install.php             # Создание полей в таблице users при установке
+│   └── hybridauth.uninstall.php           # Удаление полей при деинсталляции
+│
+├── tpl/                                   # Шаблоны для вывода
+│   ├── hybridauth.login.tpl               # Виджет кнопок входа через соцсети
+│   ├── hybridauth.accounts.tpl            # Блок привязки/отвязки аккаунтов в профиле
+│   └── hybridauth.tools.tpl               # Шаблон для страницы инструментов (админка)
+│
+├── hybridauth.global.php                  # Хук global — подключает функции для всего сайта
+├── hybridauth.login.php                   # Хук users.auth.check.query — перехватывает логин через соцсеть
+├── hybridauth.login.tags.php              # Хук users.auth.tags — Выводим системные сообщения (например, "Пользователь с таким email уже существует...")
+├── hybridauth.logout.php                  # Хук users.logout — разлогинивает из провайдеров
+├── hybridauth.php                         # Standalone-контроллер (главная точка входа)
+├── hybridauth.profile.php                 # Хук users.profile.tags — добавляет в профиль блок управления аккаунтами
+├── hybridauth.register.add.php            # Хук users.register.add.validate — обрабатывает авторегистрацию
+├── hybridauth.register.form.php           # Хук users.register.main — предзаполняет форму регистрации данными из соцсети
+├── hybridauth.register.redirect.php       # Хук users.register.add.done — перенаправляет после регистрации на автовход
+├── hybridauth.tools.php                   # Хук tools — добавляет инструмент в админку для синхронизации полей
+├── hybridauth.usertags.php                # Хук usertags.main — предоставляет теги для вывода данных соцсетей
+└── hybridauth.setup.php                   # Мета-информация плагина (версия, зависимости, настройки)
+```
+
+Примечания:
+
+    Все файлы с хуками (.php в корне) подключены к соответствующему событию Cotonti через блок [BEGIN_COT_EXT] Hooks=....
+
+    Библиотека Hybridauth 3.x размещается в /lib/Hybridauth/ с сохранением структуры пространств имён. Рекомендуется использовать штатный autoload.php из папки lib/Hybridauth/ (см. hybridauth.functions.php).
+
+    Конфигурация провайдеров (ключи, scope) задаётся в hybridauth.config.php. Включение/отключение провайдера — через ключ enabled.
+	
+
+
+## Некоторые файлы и хуки
+
+Основные файлы плагина и их назначение:
+
+| Файл | Назначение |
+|------|------------|
+| `hybridauth.php` | Главный контроллер. Обрабатывает все запросы: вход, привязка, отвязка, callback от провайдеров. |
+| `inc/hybridauth.functions.php` | Загрузка библиотеки, функции генерации профиля, логирования, формирования виджетов. |
+| `conf/hybridauth.config.php` | Конфигурация всех провайдеров и общие параметры. |
+| `hybridauth.login.php` | Хук `users.auth.check.query`. Подставляет условие для поиска пользователя по ID провайдера при социальном входе. |
+| `hybridauth.global.php` | Хук `global`. Подключает функции плагина на всех страницах. |
+| `hybridauth.login.tpl`, `hybridauth.accounts.tpl` | Шаблоны для кнопок входа и панели управления привязками. |
+| `hybridauth.usertags.php` | Хук `usertags.main`. Добавляет теги `{GOOGLE_ID}`, `{TELEGRAM_URL}` и т.п. для использования в шаблонах профиля/списка пользователей. |
+| `hybridauth.register.*.php` | Хуки для предзаполнения формы регистрации данными из соцсети и блокировки ручной регистрации. |
+| `hybridauth.tools.php` | Хук `tools`. Инструмент для синхронизации полей в админке. |
+| `setup/` | Установочные скрипты для добавления/удаления колонок в таблице `users`. |
+| `lib/Hybridauth/` | Файлы библиотеки Hybridauth 3.x. |
+
+Плагин использует стандартную систему хуков Cotonti. Все файлы, начинающиеся с префикса `hybridauth.`, являются хуками, и их имена соответствуют точкам входа, описанным в официальной документации Cotonti.
+
+___
+
+## Механика работы плагина: пошаговые сценарии на примере Google
+
+Чтобы понять, как плагин обрабатывает социальную аутентификацию, рассмотрим три типичных ситуации на примере провайдера Google. Все действия происходят в контроллере `hybridauth.php` с участием хука `hybridauth.login.php` и библиотеки Hybridauth.
+
+### Сценарий 1. Первый вход на сайт через Google
+
+Пользователь ещё не имеет учётной записи на сайте и хочет войти, используя свой Google-аккаунт, не заполняя форму регистрации.
+
+1. **Клик по кнопке «Войти через Google»**  
+   Кнопка в шаблоне формирует ссылку вида `https://сайт/hybridauth?a=login&provider=Google`. Запрос принимает контроллер `hybridauth.php`.
+
+2. **Начало OAuth-авторизации**  
+   Контроллер создаёт объект библиотеки `Hybridauth\Hybridauth` с конфигурацией Google и вызывает метод `authenticate('Google')`. Библиотека формирует URL для перенаправления на сервер Google, куда и отправляет пользователя.
+
+3. **Подтверждение на стороне Google**  
+   Пользователь авторизуется в Google (если ещё не) и разрешает приложению доступ к запрошенным данным (профиль, email). Google возвращает браузер обратно на callback-адрес `https://сайт/hybridauth`, добавляя параметры `code` и `state`.
+
+4. **Обработка callback-запроса**  
+   Контроллер обнаруживает отсутствие параметра `provider`, но видит `code` в URL. Он извлекает из сессии сохранённое название провайдера (`Google`) и снова вызывает `authenticate('Google')`, передавая полученный код. Библиотека обменивает код на токен доступа и запрашивает профиль пользователя через Google API. В результате скрипт получает объект с данными: идентификатор Google (`sub`), имя, email, URL аватара и т.д.
+
+5. **Поиск существующей учётной записи**  
+   Плагин проверяет, существует ли в таблице `users` запись с таким же `user_google_id`. Для нового пользователя такой записи нет.
+
+6. **Проверка конфликта по email**  
+   Если провайдер передал email (Google передаёт всегда), плагин ищет пользователя с таким же email.  
+   - Если пользователь найден, но его `user_google_id` ещё не заполнен – плагин выводит сообщение с предложением войти под своей учётной записью и привязать Google в профиле, после чего перенаправляет на страницу входа.  
+   - Если дубликата email нет – переход к авторегистрации (если она включена).
+
+7. **Автоматическая регистрация**  
+   При включённой опции `autoreg` плагин вызывает функцию `hybridauth_complete_profile()`, которая заполняет массив `$ruser`:
+   - `user_name` – очищенный от спецсимволов `displayName`;
+   - `user_email` – email, полученный от Google;
+   - `user_avatar` – прямая ссылка на аватар (не скачивается на сервер);
+   - `user_password` – случайно сгенерированный пароль (пользователь всё равно будет входить через соцсеть);
+   - `user_google_id` и `user_google_url` – уникальный идентификатор и ссылка на профиль Google.
+   Затем вызывается стандартная функция Cotonti `cot_add_user()` для создания пользователя. Активация учётной записи принудительно отключается (`regnoactivation = true`).
+
+8. **Автоматический вход**  
+   После создания пользователя (или если пользователь уже существовал и был найден по Google ID) плагин перенаправляет браузер на `login?a=check&x=...&provider=google`, сохранив в сессии массив `cot_hybridauth` с идентификатором Google.
+
+9. **Завершение входа через хук**  
+   Хук `hybridauth.login.php` перехватывает запрос к `login?a=check`, видит параметр `provider=google` и устанавливает условие `user_google_id = :hybridauth_id` для поиска пользователя. Система Cotonti находит запись, выполняет авторизацию (функция `cot_user_authorize`), и пользователь попадает на сайт под своей новой учётной записью.
+
+### Сценарий 2. Вход уже привязанного пользователя
+
+Пользователь ранее уже привязал Google к своей учётной записи (поле `user_google_id` заполнено).
+
+- При клике на кнопку входа повторяются шаги 1–4, как и в первом сценарии.
+- На шаге 5 плагин находит запись с таким же `user_google_id`.
+- Сразу же выполняется редирект на `login?a=check&...&provider=google`, где хук подставляет условие поиска по Google ID.
+- Cotonti выполняет вход без лишних проверок, так как пользователь уже существует и привязан.
+
+Если пользователь уже авторизован на сайте (не гость) и случайно нажимает кнопку «Войти через Google», контроллер перенаправляет его на страницу входа с сообщением «Вы уже вошли как …» – это предотвращает конфликты и дублирование сессий.
+
+### Сценарий 3. Привязка Google к существующему профилю
+
+У пользователя уже есть обычная учётная запись (с паролем), и он хочет добавить возможность входить через Google, не создавая новую учётную запись.
+
+1. **Кнопка «Связать» в личном кабинете**  
+   В шаблоне профиля размещён блок `{PHP|hybridauth_accounts}`, который генерирует ссылку `https://сайт/hybridauth?a=link&provider=Google`.
+
+2. **Запуск привязки**  
+   Контроллер видит `a=link` и `usr['id'] > 0`. Он сохраняет действие (`action = 'link'`) и название провайдера в сессию, затем вызывает `authenticate('Google')`, перенаправляя на Google.
+
+3. **Обработка callback**  
+   После подтверждения на стороне Google контроллер восстанавливает действие `link` из сессии и получает профиль пользователя.
+
+4. **Проверка на конфликт**  
+   Плагин проверяет, не привязан ли уже этот Google ID к другому пользователю. Если да – выводится ошибка «Этот аккаунт уже связан с другим пользователем».
+
+5. **Сохранение связи**  
+   Если конфликта нет, выполняется `UPDATE` записи текущего пользователя: в поля `user_google_id` и `user_google_url` записываются соответствующие значения из профиля Google.
+
+6. **Возврат в профиль**  
+   Пользователь перенаправляется обратно на страницу профиля, где блок управления аккаунтами теперь показывает Google как «Подключено».
+
+Аналогично работает действие `unlink` (отвязать) – оно очищает поля `user_google_id` и `user_google_url` и, при возможности, завершает сессию на стороне провайдера.
+
+---
+
+**Ключевые выводы**
+
+- **Единый контроллер** – все операции (вход, привязка, отвязка) обрабатываются одним файлом `hybridauth.php`, что упрощает поддержку и отладку.
+- **Минимум дублирования** – callback-логика едина для всех действий, различается только восстановлением сохранённого действия из сессии.
+- **Гибкость для пользователя** – можно войти через соцсеть, привязать несколько провайдеров к одному аккаунту или отключить ненужный.
+- **Контроль конфликтов** – проверка уникальности email и ID провайдера предотвращает создание дублирующихся учётных записей.
+- **Прозрачность** – подробное логирование в `hybridauth.log` и `hybridauth_debug.log` позволяет быстро найти причину любой неполадки.
+
+
+___
+
+## Логирование в плагине HybridAuth: два инструмента для полного контроля
+
+Плагин предоставляет **два независимых уровня логирования**, каждый из которых решает свою задачу. Понимание того, что и куда пишется, поможет быстро находить и исправлять ошибки при настройке провайдеров.
+
+---
+
+### 1. Детальный лог библиотеки (`hybridauth_debug.log`)
+
+Этот файл создаётся **самой библиотекой Hybridauth**, когда в конфигурации включён режим отладки:
+
+```php
+'debug_mode' => true,
+'debug_file' => $cfg['plugins_dir'] . '/hybridauth/log/hybridauth_debug.log',
+```
+
+**Что попадает в этот лог:**
+- Полная конфигурация провайдера, с которой был запущен процесс (маскируя секреты).
+- URL, на который перенаправляется пользователь для аутентификации.
+- Callback-URL при возврате от провайдера.
+- HTTP-запросы и ответы **на техническом уровне**: заголовки, тело ответа (включая токены и данные профиля), параметры curl, тайминги соединения.
+
+**Пример записи (начало входа через Google):**
+```
+debug -- 2026-07-25T01:04:56+00:00 -- Initialize Hybridauth\Provider\Google, config: Array (...)
+info  -- 2026-07-25T01:04:56+00:00 -- Hybridauth\Provider\Google::authenticate()
+debug -- 2026-07-25T01:04:56+00:00 -- Hybridauth\Provider\Google::authenticateBegin(), redirecting user to:
+Array ([0] => https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=...)
+```
+
+**Когда нужен этот лог:**
+- Если вход не работает, и нужно проверить, правильные ли ключи передаются в API.
+- Если провайдер возвращает ошибку, и нужно увидеть точный ответ сервера (например, `invalid_client`).
+- Чтобы убедиться, что callback URL совпадает с зарегистрированным.
+
+**Важно:** этот лог содержит **секретные данные** (токены доступа, `client_secret`). Никогда не публикуйте его в открытом доступе и отключайте (`debug_mode => false`) после завершения отладки.
+
+---
+
+### 2. Основной лог плагина (`hybridauth.log`) и функция `hybridauth_log()`
+
+Этот лог ведётся **самим плагином Cotonti** и показывает не технические детали HTTP, а **события с точки зрения бизнес-логики**: попытки входа, ошибки аутентификации, создание пользователей, привязку аккаунтов.
+
+За запись в этот файл отвечает функция `hybridauth_log()`, которая определена в `inc/hybridauth.functions.php`:
+
+```php
+function hybridauth_log(string $message): void
+{
+    global $cfg;
+    $logFile = $cfg['plugins_dir'] . '/hybridauth/log/hybridauth.log';
+    $logDir = dirname($logFile);
+    if (!is_dir($logDir)) {
+        mkdir($logDir, 0755, true);
+    }
+    $timestamp = date('Y-m-d H:i:s');
+    file_put_contents($logFile, "[$timestamp] $message\n", FILE_APPEND);
+}
+```
+
+**Как это работает:**
+Функция принимает текстовое сообщение, автоматически добавляет временную метку и дописывает строку в файл `hybridauth.log`. Папка и файл создаются автоматически при первой записи.
+
+**Пример использования в коде плагина:**
+```php
+hybridauth_log("Начало входа, провайдер: $provider");
+hybridauth_log("Успешный вход через Google, identifier: " . $user_profile->identifier);
+hybridauth_log("Ошибка authenticate: " . $e->getMessage());
+hybridauth_log("Авторегистрация включена, создаём пользователя");
+```
+
+**Что попадает в `hybridauth.log`:**
+- Каждый запуск контроллера (`hybridauth.php`).
+- Успешные аутентификации с указанием провайдера и идентификатора пользователя.
+- Обнаружение callback-запроса от провайдера.
+- Результат поиска пользователя в базе (найден / не найден).
+- Создание нового пользователя при авторегистрации.
+- Ошибки, возникающие на любом этапе (с кодом и текстом исключения).
+
+**Когда нужен этот лог:**
+- Чтобы отследить полный путь пользователя от клика по кнопке до входа на сайт.
+- Если после входа происходит редирект на страницу регистрации, а не вход — лог покажет, на каком этапе произошёл сбой (например, не найден пользователь, или авторегистрация не включена).
+- При жалобах пользователей на невозможность привязать соцсеть — лог зафиксирует ошибку «уже привязан» или «ошибка запроса».
+
+**Преимущество перед debug-логом:**  
+`hybridauth.log` **всегда активен** и не требует включения `debug_mode`. Он пишет только ключевые события, поэтому файл остаётся компактным и не забивается техническими подробностями. Это основной инструмент для повседневного мониторинга работы плагина.
+
+---
+
+### Резюме: какой лог использовать?
+
+| Ситуация | Используйте |
+|----------|-------------|
+| Вход через соцсеть не работает, хочу увидеть полную картину HTTP-запросов | `hybridauth_debug.log` (включите `debug_mode`) |
+| Пользователь не может войти, нужно понять, на каком этапе происходит сбой | `hybridauth.log` (функция `hybridauth_log()`) |
+| Нужно убедиться, что callback URL правильный | `hybridauth_debug.log` |
+| Хочу видеть, сколько пользователей зарегистрировалось через соцсети | `hybridauth.log` |
+
+Оба лога находятся в папке `plugins/hybridauth/log/` и могут просматриваться одновременно. Для полной картины неисправности рекомендуется сначала проверить `hybridauth.log`, а если причина не ясна — включить `debug_mode` и изучить технический лог.
+
+
+Теперь настройка логирования стала прозрачной: вы точно знаете, что, куда и зачем пишется, и можете быстро диагностировать любые проблемы с социальной аутентификацией.
+
+____
+
+
+## Заключение и ссылки
+
+HybridAuth — инструмент для добавления социальной аутентификации на сайт под управлением Cotonti. Он не зависит от сторонних сервисов, легко настраивается под любые провайдеры и хорошо интегрируется с современными темами (Bootstrap 5, Font Awesome). Благодаря продуманной архитектуре и открытому исходному коду вы всегда можете адаптировать его под свои нужды.
+
+- Исходный код плагина: [https://github.com/webitproff/hybridauth-cotonti](https://github.com/webitproff/hybridauth-cotonti)
+- Hybridauth — Документация и Библиотека. Официальный сайт: [https://hybridauth.github.io/](https://hybridauth.github.io/)
+- Плагин в **маркетплейсе расширений для Cotonti** [https://abuyfile.com/ru/market/cotonti/plugs/hybridauth](https://abuyfile.com/ru/market/cotonti/plugs/hybridauth)
+- Форум и [поддержка плагина находится в этом разделе](https://abuyfile.com/ru/forums/cotonti/custom/plugs/hybridauth)
+- Официальный форум Cotonti: [https://cotonti.com/forums](https://cotonti.com/forums)
+
+- **За идею взят плагин от [trustmaster](https://github.com/trustmaster/cot-hybridauth)**
+
+#### Полезно, но может быть устаревшим частично или полностью
+-  [список с инструкциями подключения провайдеров](https://docs.modx.pro/components/hybridauth/providers/)
+
+___
+
+**Created: 25 July 2026** 
+**Copyright (c) 2026 webitproff | https://github.com/webitproff**
+
