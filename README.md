@@ -1,6 +1,15 @@
-# Плагин HybridAuth для Cotonti CMF: социальная аутентификация без сторонних сервисов
+# Плагин HybridAuth для Cotonti CMF: социальная аутентификация без сторонних сервисов. version 3.1-3.13.0
 
 **HybridAuth** — это плагин для Cotonti Siena/Verona, который позволяет пользователям регистрироваться и входить на сайт, используя аккаунты популярных социальных сетей и мессенджеров (Google, Facebook, Telegram, Twitter и любых других провайдеров, поддерживающих OAuth 2.0 / OpenID Connect). Вся авторизация происходит напрямую между сайтом и выбранным сервисом, без участия посредников — ваши данные остаются под вашим контролем.
+
+
+
+[![Cotonti Compatibility](https://img.shields.io/badge/Cotonti-v.1+-orange.svg)](https://github.com/Cotonti/Cotonti)
+[![PHP](https://img.shields.io/badge/PHP-8.5-purple.svg)](https://www.php.net/releases/8_5_0.php)
+[![MySQL](https://img.shields.io/badge/MySQL-8.4-blue.svg)](https://www.mysql.com/)
+[![Bootstrap v5.3.8](https://img.shields.io/badge/Bootstrap-v5.3.8-blueviolet.svg)](https://getbootstrap.com/)
+[![License](https://img.shields.io/badge/license-BSD-blue.svg)](https://github.com/webitproff/hybridauth-cotonti/blob/main/LICENSE)
+
 
 <img width="1536" height="1024" alt="hybridauth-cotonti-by-webitproff" src="https://github.com/user-attachments/assets/974c5823-4ec3-4c58-8651-ab9193814dd1" />
 
