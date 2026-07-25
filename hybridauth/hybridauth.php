@@ -64,6 +64,13 @@ try {
 
 // Обработка возврата от провайдера (callback) – работает для login, link, connect
 if (!$provider) {
+    // Ошибка, переданная провайдером (например, пользователь отказал в доступе)
+    if (!empty($_GET['error'])) {
+        $errorDescription = $_GET['error_description'] ?? 'Неизвестная ошибка провайдера.';
+        cot_error(htmlspecialchars($errorDescription));
+        unset($_SESSION['cot_hybridauth']);
+        cot_redirect(cot_url('login'));
+    }
     if (empty($_GET['code'])) {
         cot_die_message(403);
     }
@@ -93,6 +100,7 @@ if (!$provider) {
 
 // Авторизованный пользователь пытается войти через соцсеть – перенаправляем на страницу логина
 if ($a == 'login' && $usr['id'] > 0) {
+    unset($_SESSION['cot_hybridauth']);
     cot_redirect(cot_url('login', '', '', true));
 }
 
@@ -139,6 +147,8 @@ if ($a == 'login' && $usr['id'] == 0) {
 					]),
 					'warning'
 				);
+                $hybridauth->disconnectAllAdapters();   // сброс сессий провайдеров
+                unset($_SESSION['cot_hybridauth']);
                 cot_redirect(cot_url('login', '', '', true));
             }
             // Если всё же привязан – продолжаем обычный вход (ниже)
