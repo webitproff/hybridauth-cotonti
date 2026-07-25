@@ -49,7 +49,7 @@ return [
             'scope' => 'email, user_birthday',
         ],
         'Google' => [
-            'enabled' => true,
+            'enabled' => false,
             'keys' => [
                 'id' => '',
                 'secret' => ''
@@ -57,7 +57,7 @@ return [
             'scope' => 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
         ],
         'Telegram' => [
-            'enabled' => true,
+            'enabled' => false,
             'keys' => [
                 'id'     => '',  // Client ID
                 'secret' => '' // Client Secret
