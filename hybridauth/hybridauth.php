@@ -114,6 +114,7 @@ if ($a == 'login' && $usr['id'] == 0) {
             };
             cot_error($errorMsg);
             if (isset($adapter)) $adapter->disconnect();
+            unset($_SESSION['cot_hybridauth']);  // ← очищаем сессию, чтобы не было редиректа
             cot_redirect(cot_url('users', 'm=register', '', true));
         }
     }
@@ -165,32 +166,40 @@ if ($a == 'login' && $usr['id'] == 0) {
             session_write_close();
             cot_redirect(cot_url('login', 'a=check&x=' . $sys['xk'] . '&provider=' . $provider_code, '', true));
         } else {
+            unset($_SESSION['cot_hybridauth']);  // ← очищаем сессию, чтобы не было редиректа
             cot_redirect(cot_url('users', 'm=register', '', true));
         }
     } else {
         cot_message(cot_rc('hybridauth_no_linked_account', ['provider' => $provider]));
+        unset($_SESSION['cot_hybridauth']);  // ← очищаем сессию перед редиректом на регистрацию
         cot_redirect(cot_url('users', 'm=register', '', true));
     }
 } elseif (($a == 'connect' || $a == 'link') && $usr['id'] > 0) {
-    $_SESSION['cot_hybridauth']['action'] = $a;
-    $_SESSION['cot_hybridauth']['provider'] = strtolower($provider);
-    try {
-        $adapter = $hybridauth->authenticate($provider);
-        $user_profile = $adapter->getUserProfile();
-        $provider_code = strtolower($provider);
-        $field_name = "user_{$provider_code}_id";
-        $res = $db->query("SELECT COUNT(*) FROM $db_users WHERE `$field_name` = ?", $user_profile->identifier)->fetchColumn();
-        if ($res > 0) {
-            cot_error('hybridauth_already_linked');
-        } else {
-            $db->update($db_users, [
-                $field_name                 => $user_profile->identifier,
-                "user_{$provider_code}_url" => $user_profile->profileURL,
-            ], "user_id = ?", $usr['id']);
+    // Если профиль ещё не получен из callback, только тогда идём аутентифицироваться
+    if (!isset($user_profile)) {
+        $_SESSION['cot_hybridauth']['action'] = $a;
+        $_SESSION['cot_hybridauth']['provider'] = strtolower($provider);
+        try {
+            $adapter = $hybridauth->authenticate($provider);
+            $user_profile = $adapter->getUserProfile();
+        } catch (Exception $e) {
+            cot_error($e->getMessage());
+            unset($_SESSION['cot_hybridauth']);
+            cot_redirect(cot_url('users', 'm=profile', '', true));
         }
-    } catch (Exception $e) {
-        cot_error($e->getMessage());
     }
+    $provider_code = strtolower($provider);
+    $field_name = "user_{$provider_code}_id";
+    $res = $db->query("SELECT COUNT(*) FROM $db_users WHERE `$field_name` = ?", $user_profile->identifier)->fetchColumn();
+    if ($res > 0) {
+        cot_error('hybridauth_already_linked');
+    } else {
+        $db->update($db_users, [
+            $field_name                 => $user_profile->identifier,
+            "user_{$provider_code}_url" => $user_profile->profileURL,
+        ], "user_id = ?", $usr['id']);
+    }
+    unset($_SESSION['cot_hybridauth']);
     cot_redirect(cot_url('users', 'm=profile', '', true));
 } elseif ($a == 'unlink' && $usr['id'] > 0) {
     $provider_code = strtolower($provider);
