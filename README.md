@@ -3,6 +3,7 @@
 **HybridAuth** — это плагин для Cotonti Siena/Verona, который позволяет пользователям регистрироваться и входить на сайт, используя аккаунты популярных социальных сетей и мессенджеров (Google, Facebook, Telegram, Twitter и любых других провайдеров, поддерживающих OAuth 2.0 / OpenID Connect). Вся авторизация происходит напрямую между сайтом и выбранным сервисом, без участия посредников — ваши данные остаются под вашим контролем.
 
 
+### **[DEMO](https://abuyfile.com/login)**
 
 [![Cotonti Compatibility](https://img.shields.io/badge/Cotonti-v.1+-orange.svg)](https://github.com/Cotonti/Cotonti)
 [![PHP](https://img.shields.io/badge/PHP-8.5-purple.svg)](https://www.php.net/releases/8_5_0.php)
