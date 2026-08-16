@@ -169,9 +169,22 @@ if ($a == 'login' && $usr['id'] == 0) {
         $ruser = hybridauth_complete_profile($user_profile, [], $provider_code, true);
         $ruser['user_password'] = cot_unique(12);
         $old = $cfg['users']['regnoactivation'];
+		
         $cfg['users']['regnoactivation'] = true;
         $userid = cot_add_user($ruser);
+
+        /* === Hook for the plugins === */
+        foreach (cot_getextplugins('users.register.add.done') as $pl) {
+            include $pl;
+        }
+        /* ===== */
+
         $cfg['users']['regnoactivation'] = $old;
+		
+        //$cfg['users']['regnoactivation'] = true;
+        //$userid = cot_add_user($ruser);
+        //$cfg['users']['regnoactivation'] = $old;
+		
         if ($userid) {
             session_write_close();
             cot_redirect(cot_url('login', 'a=check&x=' . $sys['xk'] . '&provider=' . $provider_code, '', true));
